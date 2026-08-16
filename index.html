@@ -445,8 +445,8 @@
 
 <div class="demo-banner" id="demo-banner">
   <span>🧪 نسخة تجريبية — Demo Version</span>
-  <span class="demo-chip" id="demo-students-chip">الحد الأقصى للطلاب: —</span>
-  <span class="demo-chip" id="demo-days-chip">الأيام المتبقية: —</span>
+  <span class="demo-chip" id="demo-students-chip">👥 الحد الأقصى للطلاب: —</span>
+  <span class="demo-chip" id="demo-days-chip" style="font-family:monospace;">⏳ جارٍ الحساب...</span>
 </div>
 
 <div class="demo-lock-overlay" id="demo-lock-overlay">
@@ -1059,36 +1059,53 @@
 //  This is a limited trial build for client evaluation:
 //  - Uses a separate Firebase path so it never touches real production data.
 //  - Caps the number of students that can be added.
-//  - Locks the whole app after a set number of days from first open (per device).
+//  - Locks the whole app after a set countdown from first open (per device), live ticking.
 //  - Shows a persistent banner so it's always clear this is a trial.
 // ============================================================
 const DEMO_MODE = true;
 const DEMO_MAX_STUDENTS = 15;
-const DEMO_TRIAL_DAYS = 14;
+const DEMO_TRIAL_DAYS = 3;
 const DEMO_TRIAL_STORAGE_KEY = 'center-demo-trial-start';
 const DEMO_FIREBASE_PATH = 'center-data-v2-DEMO/main'; // isolated from the real 'center-data-v2/main' path
 
-function demoTrialDaysLeft() {
+function demoTrialRemainingMs() {
   let start = localStorage.getItem(DEMO_TRIAL_STORAGE_KEY);
   if (!start) {
     start = String(Date.now());
     localStorage.setItem(DEMO_TRIAL_STORAGE_KEY, start);
   }
-  const elapsedDays = Math.floor((Date.now() - parseInt(start, 10)) / (1000 * 60 * 60 * 24));
-  return DEMO_TRIAL_DAYS - elapsedDays;
+  const elapsed = Date.now() - parseInt(start, 10);
+  return (DEMO_TRIAL_DAYS * 24 * 60 * 60 * 1000) - elapsed;
+}
+
+function formatDemoCountdown(ms) {
+  const pad = n => String(n).padStart(2, '0');
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return `${days} يوم ${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
 }
 
 function updateDemoBanner() {
   if (!DEMO_MODE) return;
-  const daysLeft = demoTrialDaysLeft();
+  const remainingMs = demoTrialRemainingMs();
   const studentsChip = document.getElementById('demo-students-chip');
   const daysChip = document.getElementById('demo-days-chip');
   if (studentsChip) studentsChip.textContent = `👥 الحد الأقصى للطلاب: ${DEMO_MAX_STUDENTS}`;
-  if (daysChip) daysChip.textContent = daysLeft > 0 ? `⏳ الأيام المتبقية: ${daysLeft}` : '⏳ انتهت فترة التجربة';
-  if (daysLeft <= 0) {
+  if (remainingMs > 0) {
+    if (daysChip) daysChip.textContent = `⏳ الوقت المتبقي: ${formatDemoCountdown(remainingMs)}`;
+  } else {
+    if (daysChip) daysChip.textContent = '⏳ انتهت فترة التجربة';
     document.getElementById('demo-lock-overlay').classList.add('show');
   }
 }
+
+// Live ticking countdown — updates the banner every second so it visibly counts down,
+// and locks the app the instant the trial hits zero (no page reload needed).
+if (DEMO_MODE) setInterval(updateDemoBanner, 1000);
+
 
 // Enforced at every student-adding entry point (manual add, Excel import, pre-registered codes).
 function demoStudentLimitReached(addingCount = 1) {
