@@ -46,7 +46,7 @@ canvas{max-width:100%;border:1px solid var(--bd);border-radius:8px}
 <section id="p2" hidden>
  <div class="card"><div class="sp">
   <input type="file" id="fi" accept="image/*" multiple>
-  <label>Mark sensitivity <input type="range" id="th" min="15" max="80" value="45"> <span id="tv">45%</span></label></div>
+  <label>Sensitivity (higher = detects lighter marks) <input type="range" id="th" min="10" max="90" value="50"> <span id="tv">50</span></label></div>
   <div class="mu" id="st">Upload photos/scans of the filled sheets (upright, all 4 corner squares visible, good lighting). Re-adjusting sensitivity re-detects marks and clears manual edits.</div></div>
  <div class="card"><div class="sp"><button class="btn" id="cs">📷 Start camera</button><button class="btn" id="cc" disabled>Capture &amp; grade</button><button class="btn" id="cx" disabled>Stop camera</button>
   <select id="cd" title="Camera"></select></div>
@@ -64,7 +64,7 @@ const PH=841.89,AT=435.39,AB=40,RH=(AT-AB)/21,ry=k=>PH-(AT-k*RH);
 const FID=[[35.5,ry(0)],[559.78,ry(0)],[35.5,ry(21)],[559.78,ry(21)]];
 const idp=(c,d)=>[72.5+17*c,ry(2+d)];
 function qp(q){let c=215,k;if(q<=5)k=2+q;else if(q<=10)k=3+q;else if(q<=16)k=4+q;else{c=390;k=q<=20?q-16:q<=25?q-14:q-13}return[0,1,2,3].map(i=>[c+66+27*i,ry(k)])}
-let key=Array(31).fill(''),mode='any',S=[],cur=-1,thr=.45;
+let key=Array(31).fill(''),mode='any',S=[],cur=-1,sens=50;
 try{const j=JSON.parse(localStorage.getItem('omr-key')||'null');if(j){key=j.key;mode=j.mode}}catch(e){}
 const save=()=>{try{localStorage.setItem('omr-key',JSON.stringify({key,mode}))}catch(e){}};
 $('#md').value=mode;$('#md').onchange=e=>{mode=e.target.value;save();render()};
@@ -83,12 +83,15 @@ $('#ap').onclick=()=>{let v=$('#qk').value.toUpperCase().trim();
 // ---------- image processing
 function otsu(h,n){let s=0;for(let i=0;i<256;i++)s+=i*h[i];let sb=0,wb=0,m=0,t=100;
  for(let i=0;i<256;i++){wb+=h[i];if(!wb)continue;const wf=n-wb;if(!wf)break;sb+=i*h[i];const d=sb/wb-(s-sb)/wf,v=wb*wf*d*d;if(v>m){m=v;t=i}}return t}
-function homog(src,dst){const A=[];for(let i=0;i<4;i++){const[u,v]=src[i],[x,y]=dst[i];
- A.push([u,v,1,0,0,0,-u*x,-v*x,x],[0,0,0,u,v,1,-u*y,-v*y,y])}
- for(let i=0;i<8;i++){let p=i;for(let r=i+1;r<8;r++)if(Math.abs(A[r][i])>Math.abs(A[p][i]))p=r;[A[i],A[p]]=[A[p],A[i]];
-  for(let r=0;r<8;r++)if(r!=i){const f=A[r][i]/A[i][i];for(let c=i;c<9;c++)A[r][c]-=f*A[i][c]}}
- return A.map((r,i)=>r[8]/r[i]).concat(1)}
-const ap=(h,u,v)=>{const w=h[6]*u+h[7]*v+1;return[(h[0]*u+h[1]*v+h[2])/w,(h[3]*u+h[4]*v+h[5])/w]};
+function homog(src,dst,w,h){const A=[],b=[],N=p=>[(p[0]-w/2)/w,(p[1]-h/2)/w];
+ src.forEach((p,k)=>{const u=(p[0]-300)/300,v=(p[1]-440)/400,[x,y]=N(dst[k]);
+  A.push([u,v,1,0,0,0,-u*x,-v*x]);b.push(x);A.push([0,0,0,u,v,1,-u*y,-v*y]);b.push(y)});
+ const M=[];for(let i=0;i<8;i++){M.push([]);for(let j=0;j<8;j++)M[i][j]=A.reduce((s,r)=>s+r[i]*r[j],0);M[i][8]=A.reduce((s,r,k)=>s+r[i]*b[k],0)}
+ for(let i=0;i<8;i++){let p=i;for(let r=i+1;r<8;r++)if(Math.abs(M[r][i])>Math.abs(M[p][i]))p=r;[M[i],M[p]]=[M[p],M[i]];
+  for(let r=0;r<8;r++)if(r!=i){const f=M[r][i]/M[i][i];for(let c=i;c<9;c++)M[r][c]-=f*M[i][c]}}
+ const q=M.map((r,i)=>r[8]/r[i]);
+ return(U,V)=>{const u=(U-300)/300,v=(V-440)/400,z=q[6]*u+q[7]*v+1;return[(q[0]*u+q[1]*v+q[2])/z*w+w/2,(q[3]*u+q[4]*v+q[5])/z*w+h/2]}}
+const ap=(h,u,v)=>h(u,v);
 
 async function scan(file,nm){
  const bm=await createImageBitmap(file),s=Math.min(1,1800/Math.max(bm.width,bm.height));
@@ -118,16 +121,21 @@ async function scan(file,nm){
  const ref=t20[t20.length>>1].a,f=bl.filter(b=>b.a>ref*.5&&b.a<ref*2);if(f.length<4)throw Error('corner squares not found');
  const best=fn=>f.reduce((a,b)=>fn(b)<fn(a)?b:a);
  const P=[best(b=>b.x+b.y),best(b=>-(b.x-b.y)),best(b=>b.x-b.y),best(b=>-(b.x+b.y))],pts=P.map(b=>[b.x,b.y]);
- const H=homog(FID,pts),sc=Math.hypot(pts[1][0]-pts[0][0],pts[1][1]-pts[0][1])/524.28,rr=4.3*sc;
+ let H=homog(FID,pts,w,h);const sc=Math.hypot(pts[1][0]-pts[0][0],pts[1][1]-pts[0][1])/524.28,S1=[],D1=[];
+ for(const x of[35.5,215,390,559.78])for(const k of[0,5,10,15,21]){const p=[x,ry(k)],q=H(p[0],p[1]);let bb=null,bd=1e9;
+  for(const b of f){const dd=Math.hypot(b.x-q[0],b.y-q[1]);if(dd<bd){bd=dd;bb=b}}if(bb&&bd<9*sc){S1.push(p);D1.push([bb.x,bb.y])}}
+ if(S1.length>=8)H=homog(S1,D1,w,h);const rr=3.8*sc;
  const fill=(u,v)=>{const[cx0,cy0]=ap(H,u,v);let c=0,t=0;
   for(let j=-Math.ceil(rr);j<=rr;j++)for(let i=-Math.ceil(rr);i<=rr;i++)if(i*i+j*j<=rr*rr){
-   const X=Math.round(cx0+i),Y=Math.round(cy0+j);if(X<0||Y<0||X>=w||Y>=h)continue;t++;if(px[Y*w+X]<T)c++}
+   const X=Math.round(cx0+i),Y=Math.round(cy0+j);if(X<0||Y<0||X>=w||Y>=h)continue;t++;c+=Math.max(0,Math.min(1,1-px[Y*w+X]/170))}
   return t?c/t:0};
  const fi=[],fq=[null];
  for(let c=0;c<8;c++){fi.push([]);for(let dg=0;dg<10;dg++)fi[c].push(fill(...idp(c,dg)))}
  for(let q=1;q<=30;q++)fq.push(qp(q).map(p=>fill(...p)));
  const o={name:nm||file.name,cv,H,sc,pts,fi,fq};marks(o);return o}
-function marks(o){o.mi=o.fi.map(r=>r.map(v=>v>thr));o.mq=o.fq.map(r=>r&&r.map(v=>v>thr))}
+function marks(o){const a=[...o.fi.flat(),...o.fq.slice(1).flat()],h=new Array(256).fill(0);a.forEach(v=>h[Math.min(255,Math.round(v*255))]++);
+ const th=Math.min(.4,Math.max(.12,otsu(h,a.length)/255))*(1.5-sens/100);o.th=th;
+ o.mi=o.fi.map(r=>r.map(v=>v>th));o.mq=o.fq.map(r=>r&&r.map(v=>v>th))}
 
 // ---------- grading
 const sel=(o,q)=>L.split('').filter((l,i)=>o.mq[q][i]).join('');
@@ -139,6 +147,7 @@ function idstr(o){return o.mi.map(r=>{const d=r.map((v,i)=>v?i:-1).filter(i=>i>=
 function score(o){let a=0,b=0,fl=0;for(let q=1;q<=30;q++){const s=gq(o,q);if(s=='ok')q<=20?a++:b+=2;if(s=='dbl')fl++}
  const id=idstr(o);if(id.includes('?')||!id)fl++;return{a,b,fl,id}}
 
+const rr2=()=>{const y=scrollY;render();scrollTo(0,y)};
 function render(){
  const tb=$('#tb');tb.innerHTML='';
  S.forEach((o,i)=>{const r=score(o),tr=document.createElement('tr');tr.className='row'+(i==cur?' sel':'');
@@ -149,16 +158,26 @@ function render(){
   return[o.name,r.id,r.a,r.b,r.a+r.b,Array.from({length:30},(_,i)=>sel(o,i+1)||'-').join(' ')].join(',')})).join('\n');
  if(cur<0||!S[cur])return;const o=S[cur],r=score(o);
  const c=document.createElement('div');c.className='card';
- c.innerHTML=`<h2>${o.name} — ID <b>${r.id||'(none detected)'}</b> — ${r.a+r.b}/40</h2><div class="mu">Blue rings = where the app looked; red = detected as marked. Click bubbles below to correct.</div>`;
- const ov=document.createElement('canvas');ov.width=o.cv.width;ov.height=o.cv.height;const x=ov.getContext('2d');x.drawImage(o.cv,0,0);
- x.lineWidth=2;const ring=(u,v,m)=>{const[a,b]=ap(o.H,u,v);x.strokeStyle=m?'red':'rgba(0,120,255,.6)';x.lineWidth=m?4:1.5;x.beginPath();x.arc(a,b,6.5*o.sc,0,7);x.stroke()};
- for(let k=0;k<8;k++)for(let d=0;d<10;d++){const p=idp(k,d);ring(p[0],p[1],o.mi[k][d])}
- for(let q=1;q<=30;q++)qp(q).forEach((p,i)=>ring(p[0],p[1],o.mq[q][i]));
- x.fillStyle='lime';o.pts.forEach(p=>x.fillRect(p[0]-5,p[1]-5,10,10));c.append(ov);
+ c.innerHTML=`<h2>${o.name} — ID <b>${r.id||'(none detected)'}</b> — ${r.a+r.b}/40</h2>${key.some(Boolean)?'':'<div class=flag>No answer key entered yet — go to tab 1; marks stay yellow until you do.</div>'}<div class="mu"><span style=\"color:#ca8a04\">Yellow</span> = detected mark (ID, or no key entered) · <span class=g>green</span> = matches key · <span class=r>red</span> = wrong · dashed green = correct option. Click any bubble on the photo to add or remove a mark.</div>`;
+ const ov=document.createElement('canvas');ov.width=o.cv.width;ov.height=o.cv.height;ov.style.cursor='pointer';
+ const x=ov.getContext('2d');x.drawImage(o.cv,0,0);const lw=Math.max(3,o.sc*1.1),R0=8.3*o.sc;
+ const ring=(a,b,col,dash)=>{x.strokeStyle=col;x.lineWidth=dash?lw*.6:lw;x.setLineDash(dash?[6,6]:[]);x.beginPath();x.arc(a,b,R0,0,7);x.stroke();x.setLineDash([])};
+ const bubs=[];for(let k=0;k<8;k++)for(let d=0;d<10;d++)bubs.push({id:1,k,d,p:idp(k,d)});
+ for(let q=1;q<=30;q++)qp(q).forEach((p,i)=>bubs.push({q,i,p}));
+ bubs.forEach(bb=>{const xy=o.H(bb.p[0],bb.p[1]);bb.xy=xy;
+  if(bb.id){if(o.mi[bb.k][bb.d])ring(xy[0],xy[1],'#facc15');return}
+  const q=bb.q,l=L[bb.i],m=o.mq[q][bb.i],s2=gq(o,q);
+  if(m)ring(xy[0],xy[1],!key[q]?'#facc15':s2=='ok'?'#16a34a':s2=='dbl'?'#dc2626':key[q].includes(l)?'#16a34a':'#dc2626');
+  else if(key[q]&&s2!='ok'&&key[q].includes(l))ring(xy[0],xy[1],'#16a34a',true)});
+ x.fillStyle='lime';o.pts.forEach(p=>x.fillRect(p[0]-5,p[1]-5,10,10));
+ ov.onclick=e=>{const r=ov.getBoundingClientRect(),X=(e.clientX-r.left)*ov.width/r.width,Y=(e.clientY-r.top)*ov.height/r.height;let hit=null,bd=R0*1.3;
+  for(const bb of bubs){const dd=Math.hypot(bb.xy[0]-X,bb.xy[1]-Y);if(dd<bd){bd=dd;hit=bb}}
+  if(hit){if(hit.id)o.mi[hit.k][hit.d]=!o.mi[hit.k][hit.d];else o.mq[hit.q][hit.i]=!o.mq[hit.q][hit.i];rr2()}};
+ c.append(ov);
  const idh=document.createElement('div');idh.innerHTML='<h2>ID bubbles (8 columns, empty columns are ignored)</h2>';
  const ig=document.createElement('div');ig.className='idg';
  for(let d=0;d<10;d++)for(let k=0;k<8;k++){const b=document.createElement('button');b.className='b'+(o.mi[k][d]?' sel':'');b.textContent=d;
-  b.onclick=()=>{o.mi[k][d]=!o.mi[k][d];render()};ig.append(b)}
+  b.onclick=()=>{o.mi[k][d]=!o.mi[k][d];rr2()};ig.append(b)}
  idh.append(ig);c.append(idh);
  const h2=document.createElement('h2');h2.textContent='Answers (green ring = key, filled = student)';c.append(h2);
  const kg=document.createElement('div');kg.className='kg';
@@ -166,14 +185,14 @@ function render(){
   row.innerHTML='<b>'+q+'</b>';
   L.split('').forEach((l,i)=>{const b=document.createElement('button'),m=o.mq[q][i];
    b.className='b'+(m?(s=='ok'?' ok':s=='nokey'?' sel':' bad'):'')+(key[q].includes(l)?' key':'');b.textContent=l;
-   b.onclick=()=>{o.mq[q][i]=!m;render()};row.append(b)});
+   b.onclick=()=>{o.mq[q][i]=!m;rr2()};row.append(b)});
   const f=document.createElement('span');f.className=s=='ok'?'g':s=='nokey'?'mu':'r';f.textContent=s=='ok'?'✓':s=='dbl'?'2×':s=='blank'?'–':s=='nokey'?'?':'✗';row.append(f);kg.append(row)}
  c.append(kg);rv.append(c)}
 
 $('#fi').onchange=async e=>{const fs=[...e.target.files];$('#st').textContent='Reading '+fs.length+' sheet(s)…';let bad=[];
  for(const f of fs){try{S.push(await scan(f))}catch(err){bad.push(f.name+': '+err.message)}}
  cur=S.length-1;$('#st').textContent=bad.length?'Could not read: '+bad.join('; '):'Done — click a row to review.';e.target.value='';render()};
-$('#th').oninput=e=>{thr=e.target.value/100;$('#tv').textContent=e.target.value+'%';S.forEach(marks);render()};
+$('#th').oninput=e=>{sens=+e.target.value;$('#tv').textContent=e.target.value;S.forEach(marks);render()};
 $('#cp').onclick=()=>{const t=$('#csv');t.select();try{document.execCommand('copy');$('#cp').textContent='Copied ✓'}catch(e){}setTimeout(()=>$('#cp').textContent='Copy CSV',1500)};
 
 // ---------- camera
