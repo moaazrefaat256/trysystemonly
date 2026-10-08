@@ -29,6 +29,7 @@ canvas{max-width:100%;border:1px solid var(--bd);border-radius:8px}
 .idg{display:inline-grid;grid-template-columns:repeat(8,auto);gap:2px}.idg .b{width:22px;height:22px;font-size:10px;border-width:1px}
 .flag{color:var(--wa);font-weight:600}.g{color:var(--ok)}.r{color:var(--no)}
 .sp{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.pq{border:1px solid var(--bd);border-radius:6px;padding:1px 6px;font-size:12px}
 </style></head><body><main>
 <h1>Bubble Sheet Grader</h1>
 <div class="tabs"><button id="t1" class="on">1. Answer key</button><button id="t2">2. Scan &amp; grade</button></div>
@@ -48,11 +49,12 @@ canvas{max-width:100%;border:1px solid var(--bd);border-radius:8px}
   <input type="file" id="fi" accept="image/*" multiple>
   <label>Sensitivity (higher = detects lighter marks) <input type="range" id="th" min="10" max="90" value="50"> <span id="tv">50</span></label></div>
   <div class="mu" id="st">Upload photos/scans of the filled sheets (upright, all 4 corner squares visible, good lighting). Re-adjusting sensitivity re-detects marks and clears manual edits.</div></div>
- <div class="card"><div class="sp"><button class="btn" id="cs">📷 Start camera</button><button class="btn" id="cc" disabled>Capture &amp; grade</button><button class="btn" id="cx" disabled>Stop camera</button>
-  <select id="cd" title="Camera"></select></div>
-  <video id="vd" playsinline muted style="display:none;width:100%;max-height:60vh;margin-top:8px;border-radius:8px;background:#000"></video>
-  <div class="mu" id="cm">Hold the sheet flat, upright, all 4 corner squares in view, then press Capture. Needs HTTPS or opening the file in your browser; allow camera access when asked.</div></div>
- <div class="card tw"><table><thead><tr><th>#</th><th>File</th><th>ID</th><th>1° /20</th><th>2° /20</th><th>Total /40</th><th>Check</th></tr></thead><tbody id="tb"></tbody></table></div>
+ <div class="card"><div class="sp"><button class="btn" id="cs">📷 Start camera</button><button class="btn" id="cc" disabled>Capture &amp; grade</button><button class="btn" id="cx" disabled>Stop camera</button><button class="btn" id="nx">✓ Marked — scan next sheet</button>
+  <select id="cd" title="Camera"></select><label><input type="checkbox" id="au" checked> Auto-save when steady</label></div>
+  <div id="vw" style="position:relative;display:none;margin-top:8px"><video id="vd" playsinline muted style="width:100%;border-radius:8px;background:#000;display:block"></video><canvas id="lc" style="position:absolute;left:0;top:0;width:100%;height:100%;border:0;pointer-events:none"></canvas></div>
+  <div class="mu" id="cm">Live scan: point the camera at the sheet — circles appear on the video as it reads. Hold steady and it saves automatically (or press Capture). Allow camera access when asked.</div></div>
+ <div class="card"><label><input type="checkbox" id="sr"> Rank by score</label><div id="sm" style="margin-top:6px"></div></div>
+ <div class="card tw"><table><thead><tr><th>#</th><th>File</th><th>ID</th><th>1° /20</th><th>2° /20</th><th>MCQ /40</th><th>Essay /20</th><th>Total /60</th><th>Check</th></tr></thead><tbody id="tb"></tbody></table></div>
  <div id="rv"></div>
  <h2>Export</h2><textarea id="csv" rows="5" readonly placeholder="CSV appears here"></textarea>
  <button class="btn" id="cp" style="margin-top:6px">Copy CSV</button>
@@ -64,6 +66,7 @@ const PH=841.89,AT=435.39,AB=40,RH=(AT-AB)/21,ry=k=>PH-(AT-k*RH);
 const FID=[[35.5,ry(0)],[559.78,ry(0)],[35.5,ry(21)],[559.78,ry(21)]];
 const idp=(c,d)=>[72.5+17*c,ry(2+d)];
 function qp(q){let c=215,k;if(q<=5)k=2+q;else if(q<=10)k=3+q;else if(q<=16)k=4+q;else{c=390;k=q<=20?q-16:q<=25?q-14:q-13}return[0,1,2,3].map(i=>[c+66+27*i,ry(k)])}
+let srt=false;
 let key=Array(31).fill(''),mode='any',S=[],cur=-1,sens=50;
 try{const j=JSON.parse(localStorage.getItem('omr-key')||'null');if(j){key=j.key;mode=j.mode}}catch(e){}
 const save=()=>{try{localStorage.setItem('omr-key',JSON.stringify({key,mode}))}catch(e){}};
@@ -124,7 +127,9 @@ async function scan(file,nm){
  let H=homog(FID,pts,w,h);const sc=Math.hypot(pts[1][0]-pts[0][0],pts[1][1]-pts[0][1])/524.28,S1=[],D1=[];
  for(const x of[35.5,215,390,559.78])for(const k of[0,5,10,15,21]){const p=[x,ry(k)],q=H(p[0],p[1]);let bb=null,bd=1e9;
   for(const b of f){const dd=Math.hypot(b.x-q[0],b.y-q[1]);if(dd<bd){bd=dd;bb=b}}if(bb&&bd<9*sc){S1.push(p);D1.push([bb.x,bb.y])}}
- if(S1.length>=8)H=homog(S1,D1,w,h);const rr=3.8*sc;
+ const ar=Math.hypot(pts[1][0]-pts[0][0],pts[1][1]-pts[0][1])/Math.hypot(pts[2][0]-pts[0][0],pts[2][1]-pts[0][1]);
+ if(S1.length<15||ar<1||ar>1.8)throw Error('the whole sheet (all 4 corners) must be in view');
+ H=homog(S1,D1,w,h);const rr=3.8*sc;
  const fill=(u,v)=>{const[cx0,cy0]=ap(H,u,v);let c=0,t=0;
   for(let j=-Math.ceil(rr);j<=rr;j++)for(let i=-Math.ceil(rr);i<=rr;i++)if(i*i+j*j<=rr*rr){
    const X=Math.round(cx0+i),Y=Math.round(cy0+j);if(X<0||Y<0||X>=w||Y>=h)continue;t++;c+=Math.max(0,Math.min(1,1-px[Y*w+X]/170))}
@@ -147,29 +152,35 @@ function idstr(o){return o.mi.map(r=>{const d=r.map((v,i)=>v?i:-1).filter(i=>i>=
 function score(o){let a=0,b=0,fl=0;for(let q=1;q<=30;q++){const s=gq(o,q);if(s=='ok')q<=20?a++:b+=2;if(s=='dbl')fl++}
  const id=idstr(o);if(id.includes('?')||!id)fl++;return{a,b,fl,id}}
 
+function mkBubs(o){const b=[];for(let k=0;k<8;k++)for(let d=0;d<10;d++)b.push({id:1,k,d,p:idp(k,d)});
+ for(let q=1;q<=30;q++)qp(q).forEach((p,i)=>b.push({q,i,p}));b.forEach(e=>e.xy=o.H(e.p[0],e.p[1]));return b}
+function paint(o,x,bubs){const lw=Math.max(2.5,o.sc*1.1),R0=8.3*o.sc;
+ const ring=(xy,col,dash)=>{x.strokeStyle=col;x.lineWidth=dash?lw*.6:lw;x.setLineDash(dash?[6,6]:[]);x.beginPath();x.arc(xy[0],xy[1],R0,0,7);x.stroke();x.setLineDash([])};
+ bubs.forEach(bb=>{const xy=bb.xy;
+  if(bb.id){if(o.mi[bb.k][bb.d])ring(xy,'#facc15');return}
+  const q=bb.q,l=L[bb.i],m=o.mq[q][bb.i],s2=gq(o,q);
+  if(m)ring(xy,!key[q]?'#facc15':s2=='ok'?'#16a34a':s2=='dbl'?'#dc2626':key[q].includes(l)?'#16a34a':'#dc2626');
+  else if(key[q]&&s2!='ok'&&key[q].includes(l))ring(xy,'#16a34a',true)});
+ x.fillStyle='lime';o.pts.forEach(p=>x.fillRect(p[0]-4,p[1]-4,8,8))}
 const rr2=()=>{const y=scrollY;render();scrollTo(0,y)};
 function render(){
  const tb=$('#tb');tb.innerHTML='';
- S.forEach((o,i)=>{const r=score(o),tr=document.createElement('tr');tr.className='row'+(i==cur?' sel':'');
-  tr.innerHTML=`<td>${i+1}</td><td>${o.name}</td><td>${r.id||'—'}</td><td>${r.a}</td><td>${r.b}</td><td><b>${r.a+r.b}</b></td><td class="${r.fl?'flag':'g'}">${r.fl?r.fl+' to review':'OK'}</td>`;
+ const ord=S.map((_,i)=>i),T0=o=>{const r=score(o);return r.a+r.b+(o.es||0)};if(srt)ord.sort((p,q)=>T0(S[q])-T0(S[p]));
+ ord.forEach((i,n)=>{const o=S[i],r=score(o),tr=document.createElement('tr');tr.className='row'+(i==cur?' sel':'');
+  tr.innerHTML=`<td>${n+1}</td><td>${o.name}</td><td>${r.id||'—'}</td><td>${r.a}</td><td>${r.b}</td><td>${r.a+r.b}</td><td>${o.es??'—'}</td><td><b>${T0(o)}</b></td><td class="${r.fl?'flag':'g'}">${r.fl?r.fl+' to review':'OK'}</td>`;
   tr.onclick=()=>{cur=i;render()};tb.append(tr)});
+ const tot=S.map(o=>{const r=score(o);return r.a+r.b}),N=S.length;
+ $('#sm').innerHTML=N?`<b>${N}</b> sheet(s) · MCQ average <b>${(tot.reduce((a,b)=>a+b,0)/N).toFixed(1)}</b>/40 · highest <b>${Math.max(...tot)}</b> · lowest <b>${Math.min(...tot)}</b><div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px">`+Array.from({length:30},(_,i)=>{const q=i+1,p=Math.round(100*S.filter(o=>gq(o,q)=='ok').length/N);return`<span class="pq" style="color:var(--${p<40?'no':p<70?'wa':'ok'})">Q${q} ${p}%</span>`}).join('')+'</div>':'<span class="mu">No sheets scanned yet.</span>';
  const rv=$('#rv');rv.innerHTML='';
- $('#csv').value=['name,id,1deg,2deg,total,answers'].concat(S.map(o=>{const r=score(o);
-  return[o.name,r.id,r.a,r.b,r.a+r.b,Array.from({length:30},(_,i)=>sel(o,i+1)||'-').join(' ')].join(',')})).join('\n');
+ $('#csv').value=['name,id,1deg,2deg,mcq,essay,total,answers'].concat(S.map(o=>{const r=score(o);
+  return[o.name,r.id,r.a,r.b,r.a+r.b,o.es??'',T0(o),Array.from({length:30},(_,i)=>sel(o,i+1)||'-').join(' ')].join(',')})).join('\n');
  if(cur<0||!S[cur])return;const o=S[cur],r=score(o);
  const c=document.createElement('div');c.className='card';
  c.innerHTML=`<h2>${o.name} — ID <b>${r.id||'(none detected)'}</b> — ${r.a+r.b}/40</h2>${key.some(Boolean)?'':'<div class=flag>No answer key entered yet — go to tab 1; marks stay yellow until you do.</div>'}<div class="mu"><span style=\"color:#ca8a04\">Yellow</span> = detected mark (ID, or no key entered) · <span class=g>green</span> = matches key · <span class=r>red</span> = wrong · dashed green = correct option. Click any bubble on the photo to add or remove a mark.</div>`;
+ const tl=document.createElement('div');tl.className='sp';tl.innerHTML='<label>Essay marks (/20) <input type="number" min="0" max="20" step="0.5" style="width:70px" value="'+(o.es??'')+'"></label><button class="btn" data-a="nx">✓ Marked — scan next sheet</button><button class="btn" data-a="del">Delete this sheet</button>';
+ tl.querySelector('input').onchange=e=>{o.es=e.target.value===''?null:+e.target.value;render()};tl.querySelector('[data-a=nx]').onclick=nextSheet;tl.querySelector('[data-a=del]').onclick=()=>{S.splice(cur,1);cur=S.length-1;render()};c.append(tl);
  const ov=document.createElement('canvas');ov.width=o.cv.width;ov.height=o.cv.height;ov.style.cursor='pointer';
- const x=ov.getContext('2d');x.drawImage(o.cv,0,0);const lw=Math.max(3,o.sc*1.1),R0=8.3*o.sc;
- const ring=(a,b,col,dash)=>{x.strokeStyle=col;x.lineWidth=dash?lw*.6:lw;x.setLineDash(dash?[6,6]:[]);x.beginPath();x.arc(a,b,R0,0,7);x.stroke();x.setLineDash([])};
- const bubs=[];for(let k=0;k<8;k++)for(let d=0;d<10;d++)bubs.push({id:1,k,d,p:idp(k,d)});
- for(let q=1;q<=30;q++)qp(q).forEach((p,i)=>bubs.push({q,i,p}));
- bubs.forEach(bb=>{const xy=o.H(bb.p[0],bb.p[1]);bb.xy=xy;
-  if(bb.id){if(o.mi[bb.k][bb.d])ring(xy[0],xy[1],'#facc15');return}
-  const q=bb.q,l=L[bb.i],m=o.mq[q][bb.i],s2=gq(o,q);
-  if(m)ring(xy[0],xy[1],!key[q]?'#facc15':s2=='ok'?'#16a34a':s2=='dbl'?'#dc2626':key[q].includes(l)?'#16a34a':'#dc2626');
-  else if(key[q]&&s2!='ok'&&key[q].includes(l))ring(xy[0],xy[1],'#16a34a',true)});
- x.fillStyle='lime';o.pts.forEach(p=>x.fillRect(p[0]-5,p[1]-5,10,10));
+ const x=ov.getContext('2d');x.drawImage(o.cv,0,0);const bubs=mkBubs(o);paint(o,x,bubs);const R0=8.3*o.sc;
  ov.onclick=e=>{const r=ov.getBoundingClientRect(),X=(e.clientX-r.left)*ov.width/r.width,Y=(e.clientY-r.top)*ov.height/r.height;let hit=null,bd=R0*1.3;
   for(const bb of bubs){const dd=Math.hypot(bb.xy[0]-X,bb.xy[1]-Y);if(dd<bd){bd=dd;hit=bb}}
   if(hit){if(hit.id)o.mi[hit.k][hit.d]=!o.mi[hit.k][hit.d];else o.mq[hit.q][hit.i]=!o.mq[hit.q][hit.i];rr2()}};
@@ -192,6 +203,7 @@ function render(){
 $('#fi').onchange=async e=>{const fs=[...e.target.files];$('#st').textContent='Reading '+fs.length+' sheet(s)…';let bad=[];
  for(const f of fs){try{S.push(await scan(f))}catch(err){bad.push(f.name+': '+err.message)}}
  cur=S.length-1;$('#st').textContent=bad.length?'Could not read: '+bad.join('; '):'Done — click a row to review.';e.target.value='';render()};
+$('#sr').onchange=e=>{srt=e.target.checked;render()};
 $('#th').oninput=e=>{sens=+e.target.value;$('#tv').textContent=e.target.value;S.forEach(marks);render()};
 $('#cp').onclick=()=>{const t=$('#csv');t.select();try{document.execCommand('copy');$('#cp').textContent='Copied ✓'}catch(e){}setTimeout(()=>$('#cp').textContent='Copy CSV',1500)};
 
@@ -200,16 +212,39 @@ let stream=null,cn=0;
 async function startCam(){try{
  if(stream)stopCam();
  const id=$('#cd').value,c=id?{video:{deviceId:{exact:id},width:{ideal:1920},height:{ideal:1080}}}:{video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}}};
- stream=await navigator.mediaDevices.getUserMedia(c);const v=$('#vd');v.srcObject=stream;v.style.display='block';await v.play();
+ stream=await navigator.mediaDevices.getUserMedia(c);const v=$('#vd');v.srcObject=stream;$('#vw').style.display='block';await v.play();
  const ds=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind=='videoinput'),sl=$('#cd'),cur0=stream.getVideoTracks()[0].getSettings().deviceId;
  sl.innerHTML=ds.map((d,i)=>`<option value="${d.deviceId}">${d.label||'Camera '+(i+1)}</option>`).join('');if(cur0)sl.value=cur0;
- $('#cc').disabled=$('#cx').disabled=false;$('#cm').textContent='Camera on. Align the sheet and press Capture.'}
+ $('#cc').disabled=$('#cx').disabled=false;$('#cm').textContent='Camera on — looking for the sheet…';live()}
  catch(e){$('#cm').textContent='Camera unavailable: '+e.message+'. Try opening this file directly in Chrome/Safari and allow camera access, or upload photos instead.'}}
-function stopCam(){if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;$('#vd').style.display='none';$('#cc').disabled=$('#cx').disabled=true}
+function stopCam(){if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;$('#vw').style.display='none';$('#cc').disabled=$('#cx').disabled=true}
 $('#cs').onclick=startCam;$('#cx').onclick=stopCam;$('#cd').onchange=startCam;
 $('#cc').onclick=async()=>{const v=$('#vd');if(!v.videoWidth)return;const c=document.createElement('canvas');c.width=v.videoWidth;c.height=v.videoHeight;c.getContext('2d').drawImage(v,0,0);
  $('#cm').textContent='Reading…';
  try{S.push(await scan(c,'camera-'+(++cn)));cur=S.length-1;$('#cm').textContent='Captured sheet '+cn+' — check the ring overlay below, then capture the next one.';render();$('#rv').scrollIntoView({behavior:'smooth'})}
  catch(e){$('#cm').textContent='Could not read that frame ('+e.message+'). Make sure all 4 corner squares are visible and well lit, then try again.'}};
+
+// ---------- live scanning
+async function nextSheet(){$('#cs').closest('.card').scrollIntoView({behavior:'smooth',block:'start'});
+ if(!stream)await startCam();$('#cm').textContent='Ready — show the next sheet (all 4 corner squares in view).'}
+$('#nx').onclick=nextSheet;
+let busy=false,stab=0,lsig='',lost=0,done='';
+function beep(){try{const a=new AudioContext(),o=a.createOscillator();o.frequency.value=880;o.connect(a.destination);o.start();setTimeout(()=>{o.stop();a.close()},140)}catch(e){}}
+function live(){stab=0;lsig='';lost=0;done='';tick()}
+async function tick(){if(!stream)return;const v=$('#vd');
+ if(v.videoWidth&&!busy){busy=true;try{
+  const k=Math.min(1,1280/Math.max(v.videoWidth,v.videoHeight)),c=document.createElement('canvas');c.width=Math.round(v.videoWidth*k);c.height=Math.round(v.videoHeight*k);c.getContext('2d').drawImage(v,0,0,c.width,c.height);
+  const lc=$('#lc');lc.width=c.width;lc.height=c.height;const x=lc.getContext('2d');
+  try{const o=await scan(c,'live');paint(o,x,mkBubs(o));lost=0;
+   const sg=idstr(o)+'|'+Array.from({length:30},(_,i)=>sel(o,i+1)).join('.'),r=score(o);
+   stab=sg==lsig?stab+1:1;lsig=sg;
+   if(sg==done)$('#cm').textContent='✓ Saved (ID '+(r.id||'?')+', '+(r.a+r.b)+'/40). Remove this sheet and show the next one.';
+   else if($('#au').checked&&stab>=4){const f=document.createElement('canvas');f.width=v.videoWidth;f.height=v.videoHeight;f.getContext('2d').drawImage(v,0,0);
+    const oo=await scan(f,'camera-'+(++cn));S.push(oo);cur=S.length-1;done=sg;beep();render();
+    $('#cm').textContent='✓ Saved sheet '+cn+' — ID '+(score(oo).id||'?')+', '+(score(oo).a+score(oo).b)+'/40'}
+   else $('#cm').textContent='Sheet found — ID '+(r.id||'…')+' · '+(r.a+r.b)+'/40 so far · hold steady '+(stab<4?'('+stab+'/4)':'')}
+  catch(e){x.clearRect(0,0,lc.width,lc.height);if(++lost>=3){stab=0;lsig='';done=''}$('#cm').textContent='Looking for the sheet… keep all 4 corner squares in view and well lit.'}
+ }finally{busy=false}}
+ setTimeout(tick,120)}
 kgrid();render();
 </script></body></html>
